@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'wouter';
+import { useSelector } from 'react-redux';
+import { RootState } from '@/store';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -7,36 +9,47 @@ import { Terminal, Shield, ArrowLeft, RefreshCw, Settings } from "lucide-react";
 import { Link } from "wouter";
 import { InterfaceTable } from '@/components/devices/InterfaceTable';
 import { DeviceStats } from '@/components/devices/DeviceStats';
-import { getDevice, getDeviceInterfaces, getDeviceAlerts } from '@/lib/api';
+import InterfaceGrid from '@/components/devices/InterfaceGrid';
+import { getDevice, getDeviceInterfaces, getDeviceAlerts, getDeviceStats } from '@/lib/api';
 import { Device, NetworkInterface, Alert } from '@/lib/types';
 
 const POLL_INTERVAL = 5000; // 5 seconds
 
 export default function DeviceDetail() {
   const params = useParams();
-  const id = parseInt(params.id || '0');
+  const id = Number(params.id ?? NaN);
 
   const [device, setDevice] = useState<Device | null>(null);
   const [interfaces, setInterfaces] = useState<NetworkInterface[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [stats, setStats] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Try to populate from Redux store first (fast) then fetch full details
+  const storeDevice = useSelector((s: RootState) => s.devices.items.find((d) => d.id === id) ?? null);
+
   useEffect(() => {
-    if (!id) return;
+    if (!id || isNaN(id)) return;
+
+    if (storeDevice) {
+      setDevice(storeDevice);
+    }
 
     let interval: number;
 
     const loadDeviceData = async () => {
       setLoading(true);
       try {
-        const [deviceData, interfacesData, alertsData] = await Promise.all([
+        const [deviceData, interfacesData, alertsData, statsData] = await Promise.all([
           getDevice(id),
           getDeviceInterfaces(id),
           getDeviceAlerts(id),
+          getDeviceStats(id).catch(() => null),
         ]);
         setDevice(deviceData);
         setInterfaces(interfacesData);
         setAlerts(alertsData);
+        setStats(statsData || null);
       } catch (error) {
         console.error('Failed to load device:', error);
       } finally {
@@ -49,12 +62,14 @@ export default function DeviceDetail() {
     // Poll interfaces and alerts every POLL_INTERVAL ms
     interval = window.setInterval(async () => {
       try {
-        const [latestInterfaces, latestAlerts] = await Promise.all([
+        const [latestInterfaces, latestAlerts, latestStats] = await Promise.all([
           getDeviceInterfaces(id),
           getDeviceAlerts(id),
+          getDeviceStats(id).catch(() => null),
         ]);
         setInterfaces(latestInterfaces);
         setAlerts(latestAlerts);
+        setStats(latestStats || null);
       } catch (error) {
         console.error('Failed to refresh device data:', error);
       }
@@ -96,7 +111,11 @@ export default function DeviceDetail() {
               </Badge>
             </h1>
             <p className="text-muted-foreground font-mono text-sm mt-1">
-              {device.ipAddress} • {device.model || 'Unknown'} • {device.osVersion || 'Unknown'}
+              {(() => {
+                const anyD = device as any;
+                const displayIp = anyD.ipAddress ?? anyD.ip ?? anyD.ip_address ?? anyD.managementIp ?? '-';
+                return `${displayIp} • ${device.model || 'Unknown'} • ${device.osVersion || 'Unknown'}`;
+              })()}
             </p>
           </div>
         </div>
@@ -120,10 +139,17 @@ export default function DeviceDetail() {
         </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
+          <div className="grid gap-6 md:grid-cols-3">
         {/* LEFT COLUMN */}
         <div className="space-y-6">
-          <DeviceStats device={device} />
+          <DeviceStats device={device} stats={stats} />
+
+          {interfaces && interfaces.length > 0 && (
+            <div className="rounded-lg border bg-card p-4">
+              <h3 className="font-semibold mb-3">Interfaces Overview</h3>
+              <InterfaceGrid interfaces={interfaces} />
+            </div>
+          )}
 
           <div className="rounded-lg border bg-card text-card-foreground shadow-sm p-6">
             <h3 className="font-semibold mb-4">Device Information</h3>
@@ -162,6 +188,13 @@ export default function DeviceDetail() {
             </TabsList>
 
             <TabsContent value="interfaces" className="mt-4">
+              {/* Interface grid with colored boxes and stats */}
+              {interfaces && interfaces.length > 0 && (
+                <div className="mb-4">
+                  {/** Lazy-load a visual grid component */}
+                  {/** Import added below via new component */}
+                </div>
+              )}
               <InterfaceTable interfaces={interfaces} showAdvanced={true} />
             </TabsContent>
 

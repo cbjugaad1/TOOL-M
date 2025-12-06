@@ -5,8 +5,8 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import async_session
-from ..models import Device as DeviceModel
-from ..schemas import Device as DeviceSchema, DeviceCreate
+from ..models import Device as DeviceModel, Interface as InterfaceModel, InterfaceStats as InterfaceStatsModel
+from ..schemas import Device as DeviceSchema, DeviceCreate, Interface as InterfaceSchema, InterfaceStats as InterfaceStatsSchema
 
 router = APIRouter()
 
@@ -78,3 +78,37 @@ async def delete_device(device_id: int, session: AsyncSession = Depends(get_sess
     await session.delete(device)
     await session.commit()
     return {"message": f"Device {device.hostname} deleted successfully"}
+
+# -----------------------------
+# Get interfaces for a device
+# -----------------------------
+@router.get("/{device_id}/interfaces", response_model=List[InterfaceSchema])
+async def get_device_interfaces(device_id: int, session: AsyncSession = Depends(get_session)):
+    # Check if device exists
+    query = await session.execute(select(DeviceModel).where(DeviceModel.id == device_id))
+    device = query.scalars().first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    # Fetch interfaces for the device
+    query = await session.execute(select(InterfaceModel).where(InterfaceModel.device_id == device_id))
+    interfaces = query.scalars().all()
+    return interfaces
+
+# -----------------------------
+# Get stats for a device
+# -----------------------------
+@router.get("/{device_id}/stats", response_model=List[InterfaceStatsSchema])
+async def get_device_stats(device_id: int, session: AsyncSession = Depends(get_session)):
+    # Check if device exists
+    query = await session.execute(select(DeviceModel).where(DeviceModel.id == device_id))
+    device = query.scalars().first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    # Fetch stats for all interfaces of this device
+    query = await session.execute(
+        select(InterfaceStatsModel).join(InterfaceModel).where(InterfaceModel.device_id == device_id)
+    )
+    stats_list = query.scalars().all()
+    return stats_list

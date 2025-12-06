@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Terminal, Shield, Trash2, Activity, Server, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLocation } from 'wouter';
 import { formatDistanceToNow } from "date-fns";
 
 interface DeviceGridProps {
@@ -20,10 +21,13 @@ export function DeviceGrid({ devices, onDelete }: DeviceGridProps) {
     );
   }
 
+  const [, setLocation] = useLocation();
+
   return (
     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {devices.map((device) => (
-        <Card key={device.id} className="overflow-hidden transition-all hover:shadow-md border-t-4"
+        <Card key={device.id} className="overflow-hidden transition-all hover:shadow-md border-t-4 cursor-pointer"
+          onClick={() => setLocation(`/devices/${device.id}`)}
           style={{ borderTopColor: 
             device.status === 'online' ? 'hsl(var(--status-online))' : 
             device.status === 'offline' ? 'hsl(var(--status-offline))' : 
@@ -36,7 +40,18 @@ export function DeviceGrid({ devices, onDelete }: DeviceGridProps) {
                 <Server className="h-4 w-4 text-muted-foreground" />
                 {device.hostname || 'Unknown'}
               </CardTitle>
-              <p className="text-xs font-mono text-muted-foreground">{device.ipAddress}</p>
+              {(() => {
+                const anyD = device as any;
+                const displayIp = anyD.ipAddress ?? anyD.ip ?? anyD.ip_address ?? anyD.managementIp ?? '-';
+                return (
+                  <p
+                    className="text-sm font-mono text-muted-foreground truncate max-w-[220px]"
+                    title={displayIp || ''}
+                  >
+                    {displayIp}
+                  </p>
+                );
+              })()}
             </div>
             <Badge variant="outline" className={cn(
               "capitalize",
@@ -89,7 +104,7 @@ export function DeviceGrid({ devices, onDelete }: DeviceGridProps) {
               variant="ghost" 
               size="sm" 
               className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-              onClick={() => onDelete(device.id)}
+              onClick={(e) => { e.stopPropagation(); onDelete(device.id); }}
             >
               <Trash2 className="h-4 w-4" />
             </Button>

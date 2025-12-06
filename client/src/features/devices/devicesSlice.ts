@@ -1,3 +1,4 @@
+// client/src/features/devices/devicesSlice.ts
 import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
 import { Device, NetworkInterface } from "@/lib/types";
 import { getDevices, getDeviceInterfaces } from "@/lib/api";
@@ -10,7 +11,7 @@ interface DevicesState {
 
   // Filters used by your UI
   search: string;
-  filter: string; // <-- online / offline / warning / all
+  filter: "all" | "online" | "offline" | "warning" | "mac-change";
 
   error: string | null;
 }
@@ -28,20 +29,33 @@ const initialState: DevicesState = {
   error: null,
 };
 
-// Fetch all devices
-export const fetchDevices = createAsyncThunk("devices/fetchDevices", async () => {
-  const devices = await getDevices();
-  return devices;
-});
-
-// Fetch interfaces of a single device
-export const fetchDeviceInterfaces = createAsyncThunk(
-  "devices/fetchDeviceInterfaces",
-  async (deviceId: number) => {
-    const interfaces = await getDeviceInterfaces(deviceId);
-    return interfaces;
+// Fetch all devices and normalize status
+export const fetchDevices = createAsyncThunk<Device[]>(
+  "devices/fetchDevices",
+  async () => {
+    const devices = await getDevices();
+    return devices.map((d: Device) => ({
+      ...d,
+      status:
+        d.status === "up"
+          ? "online"
+          : d.status === "down"
+          ? "offline"
+          : d.status === "warning"
+          ? "warning"
+          : null,
+    }));
   }
 );
+
+// Fetch interfaces of a single device
+export const fetchDeviceInterfaces = createAsyncThunk<
+  NetworkInterface[],
+  number
+>("devices/fetchDeviceInterfaces", async (deviceId) => {
+  const interfaces = await getDeviceInterfaces(deviceId);
+  return interfaces;
+});
 
 export const devicesSlice = createSlice({
   name: "devices",
@@ -55,23 +69,31 @@ export const devicesSlice = createSlice({
       state.items.push(action.payload);
     },
 
-    updateDeviceStatus: (state, action: PayloadAction<{ id: number; status: string }>) => {
-      const device = state.items.find((d) => d.id === action.payload.id);
+    updateDeviceStatus: (
+      state,
+      action: PayloadAction<{ id: number; status: "online" | "offline" | "warning" }>
+    ) => {
+      const device = state.items.find((d: Device) => d.id === action.payload.id);
       if (device) {
         device.status = action.payload.status;
       }
     },
 
     selectDevice: (state, action: PayloadAction<number>) => {
-      state.selectedDevice = state.items.find((d) => d.id === action.payload) || null;
+      state.selectedDevice = state.items.find(
+        (d: Device) => d.id === action.payload
+      ) || null;
     },
 
-    setSelectedDeviceInterfaces: (state, action: PayloadAction<NetworkInterface[]>) => {
+    setSelectedDeviceInterfaces: (
+      state,
+      action: PayloadAction<NetworkInterface[]>
+    ) => {
       state.selectedDeviceInterfaces = action.payload;
     },
 
     deleteDevice: (state, action: PayloadAction<number>) => {
-      state.items = state.items.filter((d) => d.id !== action.payload);
+      state.items = state.items.filter((d: Device) => d.id !== action.payload);
 
       if (state.selectedDevice?.id === action.payload) {
         state.selectedDevice = null;
@@ -79,15 +101,17 @@ export const devicesSlice = createSlice({
       }
     },
 
-    /* ---------------------------------
-     🔥 FILTER ACTIONS FOR DEVICES PAGE
-    ----------------------------------*/
+    /* -----------------------------
+       FILTER ACTIONS FOR DEVICES PAGE
+    ------------------------------*/
     setSearch: (state, action: PayloadAction<string>) => {
       state.search = action.payload;
     },
 
-    setFilter: (state, action: PayloadAction<string>) => {
-      // supports: all, online, offline, warning
+    setFilter: (
+      state,
+      action: PayloadAction<"all" | "online" | "offline" | "warning" | "mac-change">
+    ) => {
       state.filter = action.payload;
     },
   },

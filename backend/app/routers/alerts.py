@@ -55,3 +55,11 @@ async def delete_alert(alert_id: int, session: AsyncSession = Depends(get_sessio
     await session.delete(alert)
     await session.commit()
     return None
+
+
+# --- Get alerts for a specific device ---
+@router.get("/device/{device_id}", response_model=List[AlertSchema])
+async def get_device_alerts(device_id: int, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(select(AlertModel).where(AlertModel.device_id == device_id))
+    alerts = result.scalars().all()
+    return alerts

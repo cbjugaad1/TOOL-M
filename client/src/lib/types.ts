@@ -1,3 +1,5 @@
+// client/src/lib/types.ts
+
 export interface Site {
   id: number;
   siteName: string;
@@ -17,7 +19,7 @@ export interface Device {
   osVersion: string | null;
   snmpVersion: string | null;
   snmpCommunity: string | null;
-  status: string | null;
+  status: "online" | "offline" | "warning" | null;
   lastSeen: string | null;
   sshEnabled: boolean | null;
   sshUsername: string | null;
@@ -31,16 +33,21 @@ export interface NetworkInterface {
   interfaceName: string | null;
   description: string | null;
   macAddress: string | null;
-  status: string | null; // 'up' | 'down' | 'unknown'
-  speedBps: number | null; // interface speed in bits per second
+  status: "up" | "down" | "unknown" | null;
+  speedBps: number | null;
   mtu: number | null;
 
-  // Advanced stats
   inputErrors?: number | null;
   outputErrors?: number | null;
   crcErrors?: number | null;
-  inBps?: number | null;  // real-time inbound traffic in bits per second
-  outBps?: number | null; // real-time outbound traffic in bits per second
+  inBps?: number | null;
+  outBps?: number | null;
+
+  previousMac?: string | null;
+  currentMac?: string | null;
+
+  previousStatus?: "up" | "down" | "unknown" | null;
+  currentStatus?: "up" | "down" | "unknown" | null;
 }
 
 export interface InterfaceStat {
@@ -59,6 +66,9 @@ export interface Alert {
   severity: string | null;
   message: string | null;
   timestamp: string | null;
+
+  previousValue?: string | null;
+  currentValue?: string | null;
 }
 
 export interface TopologyLink {
@@ -68,15 +78,6 @@ export interface TopologyLink {
   dstDeviceId: number | null;
   dstInterface: string | null;
   lastSeen: string | null;
-}
-
-export interface SyslogEntry {
-  id: number;
-  deviceId: number;
-  severity: number;
-  message: string;
-  timestamp: string;
-  facility: string;
 }
 
 export interface TopologyNode {
