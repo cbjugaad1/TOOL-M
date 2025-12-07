@@ -7,6 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import async_session
 from ..models import Device as DeviceModel, Interface as InterfaceModel, InterfaceStats as InterfaceStatsModel
 from ..schemas import Device as DeviceSchema, DeviceCreate, Interface as InterfaceSchema, InterfaceStats as InterfaceStatsSchema
+import asyncio
+import socket
+from ..utils.snmp_engine import snmp_get
 
 router = APIRouter()
 
@@ -34,6 +37,7 @@ async def add_device(device: DeviceCreate, session: AsyncSession = Depends(get_s
         vendor=device.vendor,
         model=device.model,
         os_version=device.os_version,
+        status=device.status,
         snmp_version=device.snmp_version,
         snmp_community=device.snmp_community,
         ssh_enabled=device.ssh_enabled,
@@ -45,6 +49,73 @@ async def add_device(device: DeviceCreate, session: AsyncSession = Depends(get_s
     await session.commit()
     await session.refresh(new_device)
     return new_device
+
+
+# -----------------------------
+# Connectivity test endpoints
+# -----------------------------
+@router.post("/test/connectivity")
+async def test_connectivity(payload: dict):
+    """
+    Simple TCP reachability test. Payload: { "ip_address": "1.2.3.4" }
+    Attempts to open a TCP socket to common device ports (161 and 22).
+    """
+    ip = payload.get("ip_address")
+    if not ip:
+        raise HTTPException(status_code=400, detail="ip_address is required")
+
+    def try_connect(host, port, timeout=2):
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except Exception:
+            return False
+
+    # test SNMP (161) first, then SSH (22)
+    reachable_snmp = await asyncio.to_thread(try_connect, ip, 161, 2)
+    reachable_ssh = await asyncio.to_thread(try_connect, ip, 22, 2)
+    return {"snmp": reachable_snmp, "ssh": reachable_ssh, "any": (reachable_snmp or reachable_ssh)}
+
+
+@router.post("/test/snmp")
+async def test_snmp(payload: dict):
+    """
+    Test SNMP GET for sysName OID. Payload: { "ip_address": "..", "community": "public", "port": 161 }
+    """
+    ip = payload.get("ip_address")
+    community = payload.get("community", "public")
+    port = int(payload.get("port", 161))
+    if not ip:
+        raise HTTPException(status_code=400, detail="ip_address is required")
+
+    # sysName OID
+    oid = "1.3.6.1.2.1.1.5.0"
+    try:
+        val = await snmp_get(ip, oid, community=community, port=port)
+        return {"reachable": bool(val), "value": str(val) if val is not None else None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/test/ssh")
+async def test_ssh(payload: dict):
+    """
+    Simple SSH port test (TCP connect). Payload: { "ip_address": "..", "port": 22 }
+    """
+    ip = payload.get("ip_address")
+    port = int(payload.get("port", 22))
+    if not ip:
+        raise HTTPException(status_code=400, detail="ip_address is required")
+
+    def try_connect(host, port, timeout=2):
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except Exception:
+            return False
+
+    ok = await asyncio.to_thread(try_connect, ip, port, 2)
+    return {"reachable": ok}
 
 # -----------------------------
 # List all devices
@@ -64,6 +135,34 @@ async def get_device(device_id: int, session: AsyncSession = Depends(get_session
     device = query.scalars().first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
+    return device
+
+# -----------------------------
+# Update device (especially site_id)
+# -----------------------------
+@router.put("/{device_id}", response_model=DeviceSchema)
+async def update_device(device_id: int, payload: dict, session: AsyncSession = Depends(get_session)):
+    query = await session.execute(select(DeviceModel).where(DeviceModel.id == device_id))
+    device = query.scalars().first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    # Update fields if provided
+    if "site_id" in payload:
+        device.site_id = payload["site_id"]
+    if "hostname" in payload:
+        device.hostname = payload["hostname"]
+    if "device_type" in payload:
+        device.device_type = payload["device_type"]
+    if "snmp_community" in payload:
+        device.snmp_community = payload["snmp_community"]
+    if "ssh_enabled" in payload:
+        device.ssh_enabled = payload["ssh_enabled"]
+    if "ssh_username" in payload:
+        device.ssh_username = payload["ssh_username"]
+    
+    await session.commit()
+    await session.refresh(device)
     return device
 
 # -----------------------------

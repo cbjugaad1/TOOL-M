@@ -77,10 +77,20 @@ export const getDevice = async (id: number) => {
   const data = await api(`/devices/${id}`);
   return convertKeysToCamelCase(data);
 };
-export const createDevice = (data: any) => apiPost("/devices", data);
-export const updateDevice = (id: number, data: any) =>
-  apiPut(`/devices/${id}`, data);
+export const createDevice = async (data: any) => {
+  const res = await apiPost("/devices", data);
+  return convertKeysToCamelCase(res);
+};
+export const updateDevice = async (id: number, data: any) => {
+  const res = await apiPut(`/devices/${id}`, data);
+  return convertKeysToCamelCase(res);
+};
 export const deleteDevice = (id: number) => apiDelete(`/devices/${id}`);
+
+// Connectivity test endpoints
+export const testConnectivity = (data: any) => apiPost("/devices/test/connectivity", data);
+export const testSNMP = (data: any) => apiPost("/devices/test/snmp", data);
+export const testSSH = (data: any) => apiPost("/devices/test/ssh", data);
 
 export const getDeviceInterfaces = async (deviceId: number) => {
   const data = await api(`/devices/${deviceId}/interfaces`);
@@ -134,7 +144,10 @@ export const getSite = async (id: number) => {
   const data = await api(`/sites/${id}`);
   return convertKeysToCamelCase(data);
 };
-export const createSite = (data: any) => apiPost("/sites", data);
+export const createSite = async (data: any) => {
+  const res = await apiPost("/sites", data);
+  return convertKeysToCamelCase(res);
+};
 export const updateSite = (id: number, data: any) =>
   apiPut(`/sites/${id}`, data);
 export const deleteSite = (id: number) => apiDelete(`/sites/${id}`);

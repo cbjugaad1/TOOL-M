@@ -1,66 +1,98 @@
 // client/src/pages/Sites.tsx
 import { useEffect, useState } from 'react';
-import { getSites } from '@/lib/api';
+import { getSites, createSite } from '@/lib/api';
 import { Site } from '@/lib/types';
-import { useDispatch } from 'react-redux';
-import { fetchDevices } from '@/features/devices/devicesSlice'; // if needed to fetch devices
 import { useLocation } from 'wouter';
+import { AddSiteDialog } from '@/components/sites/AddSiteDialog';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default function Sites() {
   const [sites, setSites] = useState<Site[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [, setLocation] = useLocation();
 
   useEffect(() => {
-    fetchSites();
+    loadSites();
   }, []);
 
-  const fetchSites = async () => {
+  const loadSites = async () => {
     try {
       setLoading(true);
+      setError(null);
       const result = await getSites();
-      setSites(result);
+      setSites(Array.isArray(result) ? result : []);
     } catch (err: any) {
+      console.error('Error loading sites:', err);
       setError(err.message || 'Failed to load sites');
+      setSites([]);
     } finally {
       setLoading(false);
     }
   };
 
-  if (loading) {
-    return <div className="text-center py-8">Loading sites …</div>;
-  }
-
-  if (error) {
-    return <div className="text-center py-8 text-red-600">{error}</div>;
-  }
-
-  if (sites.length === 0) {
-    return <div className="text-center py-8">No sites found.</div>;
-  }
+  const handleAddSite = async (siteData: any) => {
+    try {
+      await createSite({
+        site_name: siteData.siteName,
+        location: siteData.location,
+        description: siteData.description,
+      });
+      await loadSites();
+    } catch (err: any) {
+      console.error('Error creating site:', err);
+      setError(err.message || 'Failed to create site');
+    }
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">Sites</h1>
-        <p className="text-muted-foreground">Manage your locations</p>
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Sites</h1>
+          <p className="text-muted-foreground">Manage your locations</p>
+        </div>
+        <AddSiteDialog onAdd={handleAddSite} />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {sites.map(site => (
-          <div 
-            key={site.id} 
-            className="p-4 border rounded cursor-pointer hover:bg-gray-50"
-            onClick={() => setLocation(`/sites/${site.id}`)}
-          >
-            <h2 className="text-xl font-semibold">{site.siteName}</h2>
-            <p className="text-sm text-muted-foreground">Location: {site.location ?? '–'}</p>
-            <p className="text-sm text-muted-foreground">Description: {site.description ?? '–'}</p>
-          </div>
-        ))}
-      </div>
+      {loading && <div className="text-center py-8 text-gray-500">Loading sites…</div>}
+      
+      {!loading && error && <div className="text-center py-8 text-red-600">{error}</div>}
+      
+      {!loading && !error && sites.length === 0 && (
+        <div className="text-center py-8 text-gray-500">
+          No sites found. Click "Add Site" to create one.
+        </div>
+      )}
+
+      {!loading && !error && sites.length > 0 && (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {sites.map((site) => (
+            <Card
+              key={site.id}
+              className="cursor-pointer hover:shadow-lg transition-shadow"
+              onClick={() => setLocation(`/sites/${site.id}`)}
+            >
+              <CardHeader>
+                <CardTitle>{site.siteName}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {site.location && (
+                  <p className="text-sm text-gray-600">
+                    <span className="font-semibold">Location:</span> {site.location}
+                  </p>
+                )}
+                {site.description && (
+                  <p className="text-sm text-gray-600">
+                    <span className="font-semibold">Description:</span> {site.description}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

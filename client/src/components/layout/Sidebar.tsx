@@ -46,8 +46,8 @@ export function Sidebar() {
             const isActive = location === item.href;
             return (
               <Link key={item.name} href={item.href}>
-                <a className={cn(
-                  "group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                <div className={cn(
+                  "group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
                   isActive 
                     ? "bg-sidebar-primary/10 text-sidebar-primary" 
                     : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
@@ -57,7 +57,7 @@ export function Sidebar() {
                     isActive ? "text-sidebar-primary" : "text-sidebar-foreground/50 group-hover:text-sidebar-accent-foreground"
                   )} />
                   {item.name}
-                </a>
+                </div>
               </Link>
             );
           })}
@@ -72,8 +72,8 @@ export function Sidebar() {
               const isActive = location === item.href;
               return (
                 <Link key={item.name} href={item.href}>
-                  <a className={cn(
-                    "group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  <div className={cn(
+                    "group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
                     isActive 
                       ? "bg-sidebar-primary/10 text-sidebar-primary" 
                       : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
@@ -83,7 +83,7 @@ export function Sidebar() {
                       isActive ? "text-sidebar-primary" : "text-sidebar-foreground/50 group-hover:text-sidebar-accent-foreground"
                     )} />
                     {item.name}
-                  </a>
+                  </div>
                 </Link>
               );
             })}

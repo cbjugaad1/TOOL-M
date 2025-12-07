@@ -21,8 +21,10 @@ function useSearchParams() {
 function getStatusColor(status: string) {
   switch (status) {
     case "online":
+    case "up":
       return "text-green-600 bg-green-100";
     case "offline":
+    case "down":
       return "text-red-600 bg-red-100";
     case "warning":
       return "text-orange-600 bg-orange-100";
@@ -46,7 +48,6 @@ export default function Devices() {
 
   useEffect(() => {
     if (["online", "offline", "warning", "all", "mac-change"].includes(urlFilter)) {
-      // `urlFilter` is a string; narrow it to the devices filter union for TypeScript
       dispatch(
         setFilter(urlFilter as "all" | "online" | "offline" | "warning" | "mac-change")
       );
@@ -120,10 +121,10 @@ export default function Devices() {
             <span className="px-2 py-1 rounded font-medium text-gray-700 bg-gray-100">
               Total: {totalCount}
             </span>
-            <span className={`px-2 py-1 rounded font-medium ${getStatusColor("up")}`}>
+            <span className={`px-2 py-1 rounded font-medium ${getStatusColor("online")}`}>
               Online: {onlineCount}
             </span>
-            <span className={`px-2 py-1 rounded font-medium ${getStatusColor("down")}`}>
+            <span className={`px-2 py-1 rounded font-medium ${getStatusColor("offline")}`}>
               Offline: {offlineCount}
             </span>
             <span className={`px-2 py-1 rounded font-medium ${getStatusColor("warning")}`}>

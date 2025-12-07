@@ -37,12 +37,16 @@ export const fetchDevices = createAsyncThunk<Device[]>(
     return devices.map((d: Device) => ({
       ...d,
       status:
-        d.status === "up"
+        d.status === "online"
           ? "online"
-          : d.status === "down"
+          : d.status === "offline"
           ? "offline"
           : d.status === "warning"
           ? "warning"
+          : d.status === "up"
+          ? "online"
+          : d.status === "down"
+          ? "offline"
           : null,
     }));
   }

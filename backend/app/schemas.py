@@ -30,6 +30,7 @@ class DeviceBase(BaseModel):
 
 class DeviceCreate(DeviceBase):
     site_id: Optional[int] = None
+    status: Optional[str] = "unknown"
     snmp_version: Optional[str] = None
     snmp_community: Optional[str] = None
     ssh_enabled: Optional[bool] = False
