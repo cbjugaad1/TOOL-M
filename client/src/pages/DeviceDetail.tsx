@@ -13,7 +13,7 @@ import InterfaceGrid from '@/components/devices/InterfaceGrid';
 import { getDevice, getDeviceInterfaces, getDeviceAlerts, getDeviceStats } from '@/lib/api';
 import { Device, NetworkInterface, Alert } from '@/lib/types';
 
-const POLL_INTERVAL = 5000; // 5 seconds
+const POLL_INTERVAL = 30000; // 30 seconds
 
 export default function DeviceDetail() {
   const params = useParams();

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -8,7 +8,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
@@ -22,7 +21,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { Site } from "@/lib/types";
 
 const siteSchema = z.object({
   siteName: z.string().min(2, "Site name must be at least 2 characters"),
@@ -30,41 +29,43 @@ const siteSchema = z.object({
   description: z.string().optional(),
 });
 
-interface AddSiteDialogProps {
-  onAdd: (site: z.infer<typeof siteSchema>) => void;
+interface EditSiteDialogProps {
+  site: Site;
+  onUpdate: (site: z.infer<typeof siteSchema>) => void;
+  onClose: () => void;
 }
 
-export function AddSiteDialog({ onAdd }: AddSiteDialogProps) {
-  const [open, setOpen] = useState(false);
+export function EditSiteDialog({ site, onUpdate, onClose }: EditSiteDialogProps) {
+  const [open, setOpen] = useState(true);
 
   const form = useForm<z.infer<typeof siteSchema>>({
     resolver: zodResolver(siteSchema),
     defaultValues: {
-      siteName: "",
-      location: "",
-      description: "",
+      siteName: site.siteName,
+      location: site.location || "",
+      description: site.description || "",
     },
   });
 
   const onSubmit = (values: z.infer<typeof siteSchema>) => {
-    onAdd(values);
+    onUpdate(values);
     setOpen(false);
-    form.reset();
+  };
+
+  const handleOpenChange = (newOpen: boolean) => {
+    setOpen(newOpen);
+    if (!newOpen) {
+      onClose();
+    }
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Site
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[400px]">
         <DialogHeader>
-          <DialogTitle>Add New Site</DialogTitle>
+          <DialogTitle>Edit Site</DialogTitle>
           <DialogDescription>
-            Enter site details to create a new location.
+            Update site details below.
           </DialogDescription>
         </DialogHeader>
 
@@ -115,7 +116,10 @@ export function AddSiteDialog({ onAdd }: AddSiteDialogProps) {
             />
 
             <DialogFooter>
-              <Button type="submit">Create Site</Button>
+              <Button variant="outline" onClick={() => handleOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button type="submit">Update Site</Button>
             </DialogFooter>
           </form>
         </Form>

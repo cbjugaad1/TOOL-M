@@ -46,11 +46,12 @@ export default function Devices() {
     dispatch(fetchDevices());
   }, [dispatch]);
 
-  // Auto-refresh device list every 3 seconds to reflect ping-based status updates
+  // Background refresh every 60 seconds without blocking UI
   useEffect(() => {
     const interval = setInterval(() => {
+      // Silent refresh without showing loading state
       dispatch(fetchDevices());
-    }, 3000);
+    }, 60000);
     return () => clearInterval(interval);
   }, [dispatch]);
 

@@ -69,7 +69,7 @@ async def get_links(session: AsyncSession = Depends(get_session)):
 # --- Get topology graph endpoint (for frontend) ---
 @router.get("/graph")
 async def get_graph(session: AsyncSession = Depends(get_session)):
-    """Get topology graph with nodes (devices) and edges (links)"""
+    """Get topology graph with nodes (devices) and edges (device-to-device links only)"""
     # Get all devices as nodes
     devices_result = await session.execute(select(Device))
     devices = devices_result.scalars().all()
@@ -88,30 +88,17 @@ async def get_graph(session: AsyncSession = Depends(get_session)):
     # Get all links as edges
     links_result = await session.execute(select(TopologyLink))
     links = links_result.scalars().all()
-    # Build edges and also add pseudo-nodes for unknown neighbors (dst_device_id is None)
+    
+    # Build edges: only include device-to-device connections (dst_device_id must be known)
     edges = []
     existing_node_ids = {n["id"] for n in nodes}
 
     for link in links:
         src = link.src_device_id
         dst = link.dst_device_id
-
-        # If destination device unknown, create a pseudo-node with negative id
-        if dst is None:
-            pseudo_id = -link.id  # negative unique id per link
-            if pseudo_id not in existing_node_ids:
-                nodes.append({
-                    "id": pseudo_id,
-                    "label": link.dst_hostname or f"unknown-{link.id}",
-                    "type": "neighbor",
-                    "status": None,
-                    "ipAddress": None,
-                })
-                existing_node_ids.add(pseudo_id)
-            dst = pseudo_id
-
-        # Only include edge if source exists (source should be a known device)
-        if src in existing_node_ids:
+        
+        # Only include edge if BOTH source and destination are known devices in DB
+        if src in existing_node_ids and dst is not None and dst in existing_node_ids:
             edges.append({
                 "id": link.id,
                 "source": src,

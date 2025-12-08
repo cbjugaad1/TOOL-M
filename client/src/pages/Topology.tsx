@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
+import { RootState, AppDispatch } from '@/store';
+import { fetchDevices } from '@/features/devices/devicesSlice';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ZoomIn, ZoomOut, RefreshCw, Move } from 'lucide-react';
-import { getTopology, getDevices } from '@/lib/api';
+import { getTopology } from '@/lib/api';
 import { Device } from '@/lib/types';
 
 interface TopologyData {
@@ -23,24 +26,27 @@ interface TopologyData {
 }
 
 export default function Topology() {
+  const dispatch = useDispatch<AppDispatch>();
+  const devices = useSelector((state: RootState) => state.devices.items);
+  
   const [zoom, setZoom] = useState(1);
   const [topology, setTopology] = useState<TopologyData | null>(null);
-  const [devices, setDevices] = useState<Device[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    // Load devices from Redux or fetch if needed
+    if (devices.length === 0) {
+      dispatch(fetchDevices());
+    }
+    // Load topology immediately
     loadTopology();
-  }, []);
+  }, [dispatch, devices.length]);
 
   const loadTopology = async () => {
-    setLoading(true);
     try {
-      const [topoData, devicesData] = await Promise.all([
-        getTopology(),
-        getDevices()
-      ]);
+      setLoading(true);
+      const topoData = await getTopology();
       setTopology(topoData);
-      setDevices(devicesData);
     } catch (error) {
       console.error('Failed to load topology:', error);
     } finally {
@@ -59,11 +65,20 @@ export default function Topology() {
     };
   };
 
-  const nodes = topology?.nodes || [];
-  const edges = topology?.edges || [];
+  // Filter out pseudo-nodes (negative IDs) and keep only real devices
+  const allNodes = topology?.nodes || [];
+  const deviceNodes = allNodes.filter(node => node.id > 0 && node.type === 'device');
+  
+  // Filter edges to show only device-to-device connections
+  const allEdges = topology?.edges || [];
+  const deviceEdges = allEdges.filter(edge => {
+    const sourceExists = deviceNodes.some(n => n.id === edge.source);
+    const targetExists = deviceNodes.some(n => n.id === edge.target);
+    return sourceExists && targetExists;
+  });
 
-  const nodePositions = nodes.reduce((acc, node, index) => {
-    acc[node.id] = getNodePosition(index, nodes.length);
+  const nodePositions = deviceNodes.reduce((acc, node, index) => {
+    acc[node.id] = getNodePosition(index, deviceNodes.length);
     return acc;
   }, {} as Record<number, { x: number; y: number }>);
 
@@ -96,7 +111,7 @@ export default function Topology() {
           <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
             Loading topology...
           </div>
-        ) : nodes.length === 0 ? (
+        ) : deviceNodes.length === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
             No topology data available. Add devices and links to see the network map.
           </div>
@@ -106,7 +121,7 @@ export default function Topology() {
             style={{ transform: `scale(${zoom})` }}
           >
             <svg className="w-full h-full pointer-events-none">
-              {edges.map((edge) => {
+              {deviceEdges.map((edge) => {
                 const srcPos = nodePositions[edge.source];
                 const dstPos = nodePositions[edge.target];
                 if (!srcPos || !dstPos) return null;
@@ -122,12 +137,31 @@ export default function Topology() {
                       strokeWidth="2" 
                     />
                     <circle cx={(srcPos.x + dstPos.x)/2} cy={(srcPos.y + dstPos.y)/2} r="3" fill="hsl(var(--muted-foreground))" />
+                    {/* Display interface names on the edge */}
+                    <text 
+                      x={(srcPos.x + dstPos.x)/2} 
+                      y={(srcPos.y + dstPos.y)/2 - 8}
+                      fontSize="10"
+                      fill="hsl(var(--muted-foreground))"
+                      textAnchor="middle"
+                    >
+                      {edge.sourceInterface}
+                    </text>
+                    <text 
+                      x={(srcPos.x + dstPos.x)/2} 
+                      y={(srcPos.y + dstPos.y)/2 + 12}
+                      fontSize="10"
+                      fill="hsl(var(--muted-foreground))"
+                      textAnchor="middle"
+                    >
+                      {edge.targetInterface}
+                    </text>
                   </g>
                 );
               })}
             </svg>
             
-            {nodes.map((node) => {
+            {deviceNodes.map((node) => {
               const pos = nodePositions[node.id];
               if (!pos) return null;
               
@@ -139,7 +173,7 @@ export default function Topology() {
                 >
                   <div className={`
                     w-12 h-12 rounded-full border-2 flex items-center justify-center bg-card shadow-lg transition-all group-hover:scale-110
-                    ${node.status === 'online' ? 'border-green-500 shadow-green-500/20' : 
+                    ${node.status === 'up' || node.status === 'online' ? 'border-green-500 shadow-green-500/20' : 
                       node.status === 'warning' ? 'border-orange-500 shadow-orange-500/20' : 
                       'border-red-500 shadow-red-500/20'}
                   `}>
