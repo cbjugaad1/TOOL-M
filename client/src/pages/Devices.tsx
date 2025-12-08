@@ -46,6 +46,14 @@ export default function Devices() {
     dispatch(fetchDevices());
   }, [dispatch]);
 
+  // Auto-refresh device list every 3 seconds to reflect ping-based status updates
+  useEffect(() => {
+    const interval = setInterval(() => {
+      dispatch(fetchDevices());
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [dispatch]);
+
   useEffect(() => {
     if (["online", "offline", "warning", "all", "mac-change"].includes(urlFilter)) {
       dispatch(
@@ -59,8 +67,8 @@ export default function Devices() {
     let filtered = items;
 
     // Handle filter
-    if (filter === "online") filtered = filtered.filter((d) => d.status === "online");
-    else if (filter === "offline") filtered = filtered.filter((d) => d.status === "offline");
+    if (filter === "online") filtered = filtered.filter((d) => d.status === "online" || d.status === "up");
+    else if (filter === "offline") filtered = filtered.filter((d) => d.status === "offline" || d.status === "down");
     else if (filter === "warning") filtered = filtered.filter((d) => d.status === "warning");
     else if (filter === "mac-change") {
       const allMacLogs = Object.values(macLogs).flat();
@@ -98,8 +106,8 @@ export default function Devices() {
     }
   };
 
-  const onlineCount = items.filter((d) => d.status === "online").length;
-  const offlineCount = items.filter((d) => d.status === "offline").length;
+  const onlineCount = items.filter((d) => d.status === "online" || d.status === "up").length;
+  const offlineCount = items.filter((d) => d.status === "offline" || d.status === "down").length;
   const warningCount = items.filter((d) => d.status === "warning").length;
   const totalCount = items.length;
 

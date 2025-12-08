@@ -109,8 +109,9 @@ class Alert(AlertBase):
 class TopologyLinkBase(BaseModel):
     src_device_id: int
     src_interface: str
-    dst_device_id: int
-    dst_interface: str
+    dst_device_id: Optional[int] = None
+    dst_interface: Optional[str] = None
+    dst_hostname: Optional[str] = None
 
 class TopologyLink(TopologyLinkBase):
     id: int

@@ -10,6 +10,10 @@ from ..schemas import Device as DeviceSchema, DeviceCreate, Interface as Interfa
 import asyncio
 import socket
 from ..utils.snmp_engine import snmp_get
+from ..utils.snmp_engine import async_ping
+import logging
+
+log = logging.getLogger("DEVICES_ROUTER")
 
 router = APIRouter()
 
@@ -124,7 +128,50 @@ async def test_ssh(payload: dict):
 async def list_devices(session: AsyncSession = Depends(get_session)):
     query = await session.execute(select(DeviceModel))
     devices = query.scalars().all()
+    # Debug: log current statuses for troubleshooting frontend sync
+    try:
+        statuses = [(d.id, d.ip_address, d.status, d.last_seen) for d in devices]
+        log.debug(f"list_devices returning {len(statuses)} devices: {statuses}")
+    except Exception:
+        pass
+    # Normalize status values so frontend receives 'online'/'offline' consistently
+    for d in devices:
+        if d.status == "up":
+            d.status = "online"
+        elif d.status == "down":
+            d.status = "offline"
     return devices
+
+
+@router.get("/debug/statuses")
+async def debug_device_statuses(session: AsyncSession = Depends(get_session)):
+    """Return minimal device status info for debugging (id, ip_address, status, last_seen)"""
+    query = await session.execute(select(DeviceModel))
+    devices = query.scalars().all()
+    result = []
+    for d in devices:
+        result.append({
+            "id": d.id,
+            "ip_address": d.ip_address,
+            "status": d.status,
+            "last_seen": d.last_seen.isoformat() if d.last_seen else None,
+        })
+    return result
+
+
+@router.get("/debug/ping")
+async def debug_ping_devices(session: AsyncSession = Depends(get_session)):
+    """Ping all devices from the backend and return results for debugging."""
+    query = await session.execute(select(DeviceModel))
+    devices = query.scalars().all()
+
+    async def do_ping(d):
+        ok = await async_ping(d.ip_address, timeout_ms=1000)
+        return {"id": d.id, "ip_address": d.ip_address, "hostname": d.hostname, "reachable": ok}
+
+    tasks = [do_ping(d) for d in devices]
+    results = await asyncio.gather(*tasks, return_exceptions=False)
+    return results
 
 # -----------------------------
 # Get single device by ID
@@ -135,6 +182,11 @@ async def get_device(device_id: int, session: AsyncSession = Depends(get_session
     device = query.scalars().first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
+    # Normalize status for single-device endpoint as well
+    if device.status == "up":
+        device.status = "online"
+    elif device.status == "down":
+        device.status = "offline"
     return device
 
 # -----------------------------

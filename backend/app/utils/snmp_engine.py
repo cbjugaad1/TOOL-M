@@ -2,6 +2,8 @@
 import asyncio
 import logging
 from datetime import datetime
+import platform
+import socket
 from pysnmp.hlapi import (
     SnmpEngine,
     CommunityData,
@@ -46,11 +48,86 @@ def calc_bps(old, new, interval):
         return 0
 
 
+def format_mac_address(mac_value):
+    """
+    Convert binary MAC address octets to standard hex format (aa:bb:cc:dd:ee:ff)
+    Handles both bytes and string representations from SNMP.
+    """
+    if not mac_value:
+        return None
+    
+    try:
+        # If it's a string representation of bytes, convert it
+        if isinstance(mac_value, str):
+            # Handle case where string contains null bytes or other artifacts
+            mac_value = mac_value.replace("\x00", "").strip()
+            if not mac_value:
+                return None
+            
+            # If already in hex format (contains colons), return as-is
+            if ":" in mac_value:
+                return mac_value
+            
+            # Convert string representation of bytes to hex
+            # Try to interpret as raw bytes
+            if isinstance(mac_value, str):
+                # Get the byte representation
+                mac_bytes = mac_value.encode('latin-1')
+            else:
+                mac_bytes = mac_value
+        else:
+            mac_bytes = mac_value
+        
+        # Convert bytes to hex format with colons
+        if len(mac_bytes) >= 6:
+            hex_parts = [f"{byte:02x}" for byte in mac_bytes[:6]]
+            return ":".join(hex_parts)
+        else:
+            return None
+    except Exception as e:
+        log.warning(f"Failed to format MAC address {repr(mac_value)}: {e}")
+        return None
+
+
 def oid_index(oid_string):
     try:
         return oid_string.rsplit(".", 1)[-1]
     except Exception:
         return None
+
+
+async def async_ping(host: str, timeout_ms: int = 1000) -> bool:
+    """Check host reachability via TCP socket connect to common ports.
+
+    Tries SNMP (161) and SSH (22). Returns True if any port is reachable.
+    More reliable than ICMP/subprocess ping on Windows.
+    """
+    if not host:
+        return False
+
+    try:
+        timeout_sec = max(1, timeout_ms / 1000.0)
+        # Try TCP connect to SNMP (161) and SSH (22) ports
+        for port in (161, 22):
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(timeout_sec)
+                try:
+                    result = sock.connect_ex((host, port))
+                    sock.close()
+                    # connect_ex returns 0 on success, non-zero on failure
+                    if result == 0:
+                        return True
+                except Exception:
+                    try:
+                        sock.close()
+                    except Exception:
+                        pass
+            except Exception:
+                continue
+        return False
+    except Exception:
+        return False
 
 
 # --------------------------------------------------------------------------
@@ -124,32 +201,45 @@ async def get_lldp_neighbors(target, community="public"):
     interface names (we keep index here and match to ifDescr loop).
     """
     neighbors = {}
-    sysnames = await snmp_walk(target, LLDP_REM_SYS_NAME, community)
-    portdesc = await snmp_walk(target, LLDP_REM_PORT_DESC, community)
-    manaddr = await snmp_walk(target, LLDP_REM_MAN_ADDR, community)
+    # Perform LLDP walks concurrently to reduce latency
+    sysnames, portdesc, manaddr = await asyncio.gather(
+        snmp_walk(target, LLDP_REM_SYS_NAME, community),
+        snmp_walk(target, LLDP_REM_PORT_DESC, community),
+        snmp_walk(target, LLDP_REM_MAN_ADDR, community),
+    )
 
+    log.debug(f"LLDP walk results for {target}: sysnames={bool(sysnames)}, portdesc={bool(portdesc)}, manaddr={bool(manaddr)}")
+    
     if not sysnames:
+        log.debug(f"{target}: No LLDP neighbors found (sysnames empty)")
         return neighbors
 
     for oid, sysname in sysnames.items():
-        index = oid_index(oid)
-        if index is None:
+        try:
+            index = oid_index(oid)
+            if index is None:
+                continue
+            # sanitize values
+            neighbor_name = str(sysname).replace("\x00", "").strip()
+            neighbor_ip = ""
+            if manaddr:
+                neighbor_ip = str(manaddr.get(f"{LLDP_REM_MAN_ADDR}.{index}", "")).replace("\x00", "").strip()
+            neighbor_iface = ""
+            if portdesc:
+                neighbor_iface = str(portdesc.get(f"{LLDP_REM_PORT_DESC}.{index}", "")).replace("\x00", "").strip()
+
+            log.debug(f"  LLDP index={index}: name={neighbor_name}, ip={neighbor_ip}, iface={neighbor_iface}")
+            
+            neighbors[index] = {
+                "neighbor_name": neighbor_name,
+                "neighbor_ip": neighbor_ip,
+                "neighbor_iface": neighbor_iface,
+            }
+        except Exception as e:
+            log.warning(f"Error processing LLDP entry {oid}: {e}")
             continue
-        # sanitize values
-        neighbor_name = str(sysname).replace("\x00", "").strip()
-        neighbor_ip = ""
-        if manaddr:
-            neighbor_ip = str(manaddr.get(f"{LLDP_REM_MAN_ADDR}.{index}", "")).replace("\x00", "").strip()
-        neighbor_iface = ""
-        if portdesc:
-            neighbor_iface = str(portdesc.get(f"{LLDP_REM_PORT_DESC}.{index}", "")).replace("\x00", "").strip()
 
-        neighbors[index] = {
-            "neighbor_name": neighbor_name,
-            "neighbor_ip": neighbor_ip,
-            "neighbor_iface": neighbor_iface,
-        }
-
+    log.info(f"{target}: Found {len(neighbors)} LLDP neighbors")
     return neighbors
 
 
@@ -174,12 +264,14 @@ async def poll_device(device_info: dict, interval=5):
 
         log.info(f"Polling device {device_name} ({target})")
 
-        # SNMP interface data
-        if_descr = await snmp_walk(target, IF_DESCR_OID, community)
-        if_oper = await snmp_walk(target, IF_OPER_STATUS_OID, community)
-        if_in = await snmp_walk(target, IF_IN_OCTETS_OID, community)
-        if_out = await snmp_walk(target, IF_OUT_OCTETS_OID, community)
-        if_mac = await snmp_walk(target, IF_MAC_OID, community)
+        # SNMP interface data - perform walks concurrently to reduce per-device latency
+        if_descr, if_oper, if_in, if_out, if_mac = await asyncio.gather(
+            snmp_walk(target, IF_DESCR_OID, community),
+            snmp_walk(target, IF_OPER_STATUS_OID, community),
+            snmp_walk(target, IF_IN_OCTETS_OID, community),
+            snmp_walk(target, IF_OUT_OCTETS_OID, community),
+            snmp_walk(target, IF_MAC_OID, community),
+        )
 
         if not if_descr:
             log.info(f"{target}: no ifDescr (SNMP may be unreachable)")
@@ -225,9 +317,10 @@ async def poll_device(device_info: dict, interval=5):
 
                         in_oct = int(if_in.get(in_key, 0)) if if_in else 0
                         out_oct = int(if_out.get(out_key, 0)) if if_out else 0
-                        mac = str(if_mac.get(mac_key, "")).replace("\x00", "").strip() if if_mac else None
-                        if mac == "":
-                            mac = None
+                        
+                        # Convert MAC address from SNMP binary format to hex
+                        mac_raw = if_mac.get(mac_key) if if_mac else None
+                        mac = format_mac_address(mac_raw) if mac_raw else None
 
                         # compute bps and convert to integer for BigInteger DB column
                         in_bps = int((in_oct * 8 / interval)) if in_oct is not None else 0
@@ -279,32 +372,44 @@ async def poll_device(device_info: dict, interval=5):
                                 qdev = await session.execute(select(Device).where(Device.ip_address == neighbor_ip))
                                 neighbor_device = qdev.scalars().first()
 
-                            # Only create topology link if neighbor_device exists (your TopologyLink model stores device ids)
-                            if neighbor_device:
-                                qlink = await session.execute(
-                                    select(TopologyLink).where(
-                                        (TopologyLink.src_device_id == device_id)
-                                        & (TopologyLink.src_interface == name)
-                                        & (TopologyLink.dst_device_id == neighbor_device.id)
-                                        & (TopologyLink.dst_interface == neighbor_iface)
+                            # Create topology link (with or without neighbor device ID)
+                            if neighbor_device or neighbor_ip or neighbor_name:
+                                # Check if link already exists (only if we have a neighbor device ID)
+                                if neighbor_device:
+                                    qlink = await session.execute(
+                                        select(TopologyLink).where(
+                                            (TopologyLink.src_device_id == device_id)
+                                            & (TopologyLink.src_interface == name)
+                                            & (TopologyLink.dst_device_id == neighbor_device.id)
+                                            & (TopologyLink.dst_interface == neighbor_iface)
+                                        )
                                     )
-                                )
-                                link = qlink.scalars().first()
-                                if link:
-                                    link.last_seen = datetime.utcnow()
+                                    link = qlink.scalars().first()
+                                    if link:
+                                        link.last_seen = datetime.utcnow()
+                                    else:
+                                        new_link = TopologyLink(
+                                            src_device_id=device_id,
+                                            src_interface=name,
+                                            dst_device_id=neighbor_device.id,
+                                            dst_interface=neighbor_iface,
+                                            dst_hostname=neighbor_name,
+                                            last_seen=datetime.utcnow(),
+                                        )
+                                        session.add(new_link)
+                                        log.info(f"{target} IF={name}: neighbor ({neighbor_name} {neighbor_ip}) linked")
                                 else:
+                                    # Neighbor not in DB yet, but store the link with hostname/IP info
                                     new_link = TopologyLink(
                                         src_device_id=device_id,
                                         src_interface=name,
-                                        dst_device_id=neighbor_device.id,
+                                        dst_device_id=None,  # Will be NULL in DB
+                                        dst_hostname=neighbor_name,
                                         dst_interface=neighbor_iface,
                                         last_seen=datetime.utcnow(),
                                     )
                                     session.add(new_link)
-                            else:
-                                # If neighbor not in DB, we skip storing the link (alternatively you could store
-                                # an "unknown" link row if you expand your model later)
-                                log.debug(f"{target} IF={name}: neighbor ({neighbor_name} {neighbor_ip}) not in DB - skipping link storage")
+                                    log.debug(f"{target} IF={name}: neighbor ({neighbor_name} {neighbor_ip}) stored without device ID")
 
                     except Exception as e:
                         log.exception(f"Error processing interface {full_oid} on {target}: {e}")
@@ -360,9 +465,73 @@ async def poll_all_devices(interval=5):
 
             log.info(f"Polling {len(device_infos)} devices...")
 
-            tasks = [poll_device(info, interval) for info in device_infos]
+            # First: ping all devices concurrently to set quick up/down status
+            ping_concurrency = 50
+            ping_sem = asyncio.Semaphore(ping_concurrency)
+
+            async def ping_worker(info):
+                ip = info.get("ip_address")
+                async with ping_sem:
+                    try:
+                        ok = await async_ping(ip, timeout_ms=1000)
+                        return info["id"], ip, ok
+                    except Exception as e:
+                        log.exception(f"Ping error for {ip}: {e}")
+                        return info["id"], ip, False
+
+            ping_tasks = [ping_worker(info) for info in device_infos]
+            ping_results = await asyncio.gather(*ping_tasks, return_exceptions=False)
+
+            # Update DB statuses based on ping results
+            async with async_session() as session:
+                try:
+                    log.debug(f"Processing {len(ping_results)} ping results")
+                    for dev_id, ip, ok in ping_results:
+                        q = await session.execute(select(Device).where(Device.id == dev_id))
+                        db_dev = q.scalars().first()
+                        if db_dev:
+                            prev = db_dev.status
+                            if ok:
+                                db_dev.status = "up"
+                                db_dev.last_seen = datetime.utcnow()
+                            else:
+                                db_dev.status = "down"
+                                db_dev.last_seen = None
+                            if prev != db_dev.status:
+                                log.info(f"Device {db_dev.hostname or db_dev.ip_address} ({ip}) status changed: {prev} -> {db_dev.status}")
+                    await session.commit()
+                    log.info("Ping status update committed for devices")
+                except Exception as e:
+                    log.exception(f"Failed to update ping statuses: {e}")
+                    try:
+                        await session.rollback()
+                    except Exception:
+                        pass
+
+            # Limit concurrency for SNMP polling so we don't overload system for large device counts
+            max_concurrency = 20
+            sem = asyncio.Semaphore(max_concurrency)
+
+            async def sem_task(info):
+                async with sem:
+                    # Skip SNMP polling if device is down per ping
+                    ip = info.get("ip_address")
+                    dev_id = info.get("id")
+                    try:
+                        # quick check: if DB says down, skip SNMP poll
+                        async with async_session() as s:
+                            q = await s.execute(select(Device).where(Device.id == dev_id))
+                            db_dev = q.scalars().first()
+                            if db_dev and db_dev.status == "down":
+                                log.debug(f"Skipping SNMP poll for {ip} (down per ping)")
+                                return
+                        await poll_device(info, interval)
+                    except Exception as e:
+                        log.exception(f"poll_device error for {info.get('ip_address')}: {e}")
+
+            tasks = [sem_task(info) for info in device_infos]
             # gather tasks but don't let one failing task cancel others
-            await asyncio.gather(*tasks, return_exceptions=False)
+            await asyncio.gather(*tasks, return_exceptions=True)
         except Exception as e:
             log.exception(f"poll_all_devices top-level error: {e}")
 

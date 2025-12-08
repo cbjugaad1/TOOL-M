@@ -33,22 +33,9 @@ const initialState: DevicesState = {
 export const fetchDevices = createAsyncThunk<Device[]>(
   "devices/fetchDevices",
   async () => {
+    // Do not normalize status here; keep backend value (e.g., 'up'/'down')
     const devices = await getDevices();
-    return devices.map((d: Device) => ({
-      ...d,
-      status:
-        d.status === "online"
-          ? "online"
-          : d.status === "offline"
-          ? "offline"
-          : d.status === "warning"
-          ? "warning"
-          : d.status === "up"
-          ? "online"
-          : d.status === "down"
-          ? "offline"
-          : null,
-    }));
+    return devices as Device[];
   }
 );
 
