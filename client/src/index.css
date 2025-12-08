@@ -143,3 +143,4 @@
   .status-warning { @apply bg-status-warning shadow-[0_0_8px_hsl(var(--status-warning))]; }
   .status-critical { @apply bg-status-critical shadow-[0_0_8px_hsl(var(--status-critical))]; }
 }
+/* DARK THEME DEFAULT FOR NMS */
